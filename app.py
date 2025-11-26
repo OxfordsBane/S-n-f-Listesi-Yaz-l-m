@@ -8,18 +8,25 @@ st.set_page_config(page_title="Hazırlık Sınıf Dağıtım", layout="wide")
 
 st.title("🇬🇧 İngilizce Hazırlık Sınıf Atama Sistemi")
 
+# --- TANIMLAR ---
+# Kur sıralaması (Terfi mantığı için gereklidir)
+LEVEL_ORDER = ["A1", "A2", "B1", "B2"]
+PASS_GRADES = ['A', 'B', 'C'] # Bir üst kura geçiren notlar
+FAIL_GRADES = ['F', 'GHOST']   # Tekrar ettiren notlar
+# Placement: Olduğu seviyede başlatır.
+
 # --- 1. ŞABLON İNDİRME ---
 st.markdown("### 1. Adım: Veri Şablonu")
 st.info("Ayarların açılması için önce aşağıdaki şablona uygun listenizi yüklemeniz gerekmektedir.")
 
 # Örnek veri
 example_data = {
-    'Öğrenci No': [23001, 23002, 23003, 23004],
-    'Ad': ['Ahmet', 'Ayşe', 'John', 'Fatma'],
-    'Soyad': ['Yılmaz', 'Demir', 'Doe', 'Kaya'],
-    'Seviyesi': ['A1', 'A1', 'A2', 'B1'],
-    'Uyruk': ['ÖSYM', 'ÖSYM', 'YÖS', 'ÖSYM'],
-    'Modül Durumu': ['A', 'F', 'Placement', 'B'] 
+    'Öğrenci No': [23001, 23002, 23003, 23004, 23005],
+    'Ad': ['Ahmet', 'Ayşe', 'John', 'Fatma', 'Mehmet'],
+    'Soyad': ['Yılmaz', 'Demir', 'Doe', 'Kaya', 'Çelik'],
+    'Seviyesi': ['A1', 'A1', 'B1', 'B1', 'A2'],
+    'Uyruk': ['ÖSYM', 'ÖSYM', 'YÖS', 'ÖSYM', 'ÖSYM'],
+    'Modül Durumu': ['A', 'F', 'B', 'Ghost', 'Placement'] 
 }
 df_example = pd.DataFrame(example_data)
 
@@ -50,35 +57,59 @@ if uploaded_file is not None:
         # Excel'i oku
         df = pd.read_excel(uploaded_file)
         
-        # Sütun isimlerindeki olası boşlukları temizle (Örn: "Seviyesi " -> "Seviyesi")
+        # Temizlik
         df.columns = df.columns.str.strip()
-        
-        # Kritik Sütun Kontrolü
         required_columns = ['Seviyesi', 'Öğrenci No', 'Ad', 'Soyad', 'Uyruk', 'Modül Durumu']
         missing_columns = [col for col in required_columns if col not in df.columns]
         
         if missing_columns:
-            st.error(f"❌ HATA: Excel dosyasında şu sütunlar bulunamadı: {', '.join(missing_columns)}")
-            st.warning("Lütfen indirdiğiniz şablondaki başlıkları değiştirmeyin.")
+            st.error(f"❌ HATA: Eksik sütunlar: {', '.join(missing_columns)}")
             st.stop()
             
-        # Veri Temizliği (Boşlukları sil, string'e çevir)
+        # Veri Standartlaştırma
         df['Seviyesi'] = df['Seviyesi'].astype(str).str.strip().str.upper()
-        df['Modül Durumu'] = df['Modül Durumu'].astype(str).str.strip()
+        df['Modül Durumu'] = df['Modül Durumu'].astype(str).str.strip() # Harf duyarlılığı için upper yapmıyoruz, aşağıda kontrol edeceğiz.
         df['Uyruk'] = df['Uyruk'].astype(str).str.strip()
-
-        # "NAN" veya "NULL" olan seviyeleri filtrele
         df = df[df['Seviyesi'] != 'NAN']
 
-        # Seviyeleri tespit et
-        levels = sorted(df['Seviyesi'].unique())
+        # --- KUR ATLAMA MANTIĞI (LEVEL UP LOGIC) ---
+        # Öğrencinin 'Seviyesi' ve 'Modül Durumu'na bakarak 'Hedef_Seviye'yi belirle
         
-        if len(levels) == 0:
-            st.error("⚠️ Dosyada hiç seviye bilgisi bulunamadı. 'Seviyesi' sütununun dolu olduğundan emin olun.")
-            st.stop()
+        target_levels = []
+        
+        for index, row in df.iterrows():
+            current_lvl = row['Seviyesi']
+            grade = row['Modül Durumu']
+            
+            # Not kontrolü (Büyük/küçük harf duyarsız yapalım)
+            grade_upper = grade.upper()
+            
+            final_lvl = current_lvl # Varsayılan: Değişmez
+            
+            if grade_upper in PASS_GRADES:
+                # Başarılı ise bir üst kura geç
+                if current_lvl in LEVEL_ORDER:
+                    current_idx = LEVEL_ORDER.index(current_lvl)
+                    if current_idx < len(LEVEL_ORDER) - 1:
+                        final_lvl = LEVEL_ORDER[current_idx + 1]
+                    else:
+                        final_lvl = current_lvl + " (Mezun?)" # Liste dışı durum
+                else:
+                    final_lvl = current_lvl # Tanımsız seviye ise kalır
+            
+            # F, GHOST veya PLACEMENT ise seviye değişmez (Current Level kalır)
+            # Not: Placement genelde başlayacağı kura yerleştirildiği için değişmez kabul ettik.
+            
+            target_levels.append(final_lvl)
 
-        st.success(f"✅ Dosya okundu! Tespit edilen seviyeler: {', '.join(levels)}")
-        st.info("👇 Aşağıdaki panelden sınıf sayılarını ayarlayabilirsiniz.")
+        # Yeni hesaplanan seviyeyi dataframe'e ekle
+        df['Atanacak_Seviye'] = target_levels
+
+        # Artık ayarları 'Seviyesi'ne göre değil, hesaplanan 'Atanacak_Seviye'ye göre yapacağız
+        active_levels = sorted(df['Atanacak_Seviye'].unique())
+        
+        st.success(f"✅ Dosya işlendi. Kur atlama kuralları uygulandı.")
+        st.info(f"Oluşacak Sınıf Seviyeleri: {', '.join(active_levels)}")
         
         st.divider()
 
@@ -87,23 +118,24 @@ if uploaded_file is not None:
         
         config = {} 
         
-        # Form oluşturarak ayarların anlık değişmesini engelle (Daha stabil arayüz)
         with st.form("settings_form"):
-            for level in levels:
-                student_count_in_level = len(df[df['Seviyesi'] == level])
+            for level in active_levels:
+                # O seviyeye atanacak öğrencileri filtrele (Eski seviyesine göre değil!)
+                students_in_target = df[df['Atanacak_Seviye'] == level]
+                count = len(students_in_target)
                 
-                st.markdown(f"**🎚️ {level} Seviyesi** (Öğrenci Sayısı: {student_count_in_level})")
+                st.markdown(f"**🎚️ {level} Sınıfları** (Atanacak Öğrenci: {count})")
                 
                 c1, c2 = st.columns([1, 4])
                 with c1:
                     num_classes = st.number_input(
-                        f"{level} Sınıf Sayısı", 
+                        f"{level} Sınıf Adedi", 
                         min_value=1, value=1, step=1, 
                         key=f"num_{level}"
                     )
                 
                 with c2:
-                    st.write(f"{level} Sınıf Kapasiteleri:")
+                    st.write(f"{level} Kapasiteleri:")
                     cols = st.columns(min(num_classes, 6))
                     
                     level_caps = []
@@ -120,8 +152,7 @@ if uploaded_file is not None:
                     config[level] = level_caps
                 st.markdown("---")
             
-            # Form gönderme butonu
-            submitted = st.form_submit_button("💾 Ayarları Onayla ve Dağıtımı Başlat", type="primary")
+            submitted = st.form_submit_button("💾 Listeleri Oluştur", type="primary")
 
         # --- 4. DAĞITIM MOTORU ---
         if submitted:
@@ -129,14 +160,15 @@ if uploaded_file is not None:
             workbook = xlsxwriter.Workbook(output_buffer, {'in_memory': True})
             logs = []
             
-            for level in levels:
-                level_data = df[df['Seviyesi'] == level].copy()
+            for level in active_levels:
+                # O seviyeye GİDECEK öğrencileri al
+                level_data = df[df['Atanacak_Seviye'] == level].copy()
                 classes_cfg = config[level]
                 
                 # Kapasite Kontrolü
                 total_cap = sum([c['cap'] for c in classes_cfg])
                 if total_cap < len(level_data):
-                    st.warning(f"⚠️ {level} seviyesinde öğrenci sayısı ({len(level_data)}) kapasiteden ({total_cap}) fazla! Fazlalıklar eşit dağıtılacak.")
+                    st.warning(f"⚠️ {level} seviyesinde {len(level_data)} öğrenci var ama kapasite {total_cap}. Fazlalıklar dağıtılıyor.")
 
                 class_buckets = {c['name']: [] for c in classes_cfg}
                 class_names = [c['name'] for c in classes_cfg]
@@ -160,7 +192,10 @@ if uploaded_file is not None:
                     if df_class.empty:
                         df_class = pd.DataFrame(columns=df.columns)
                     else:
-                        df_class = df_class[df.columns]
+                        # Çıktıda 'Atanacak_Seviye' sütununu göstermeye gerek yok, veya isteğe bağlı.
+                        # Orijinal sütunları koruyalım + Atanan sınıfı ekleyebiliriz ama ayrı sayfa istedin.
+                        cols_to_show = ['Seviyesi', 'Öğrenci No', 'Ad', 'Soyad', 'Uyruk', 'Modül Durumu']
+                        df_class = df_class[cols_to_show]
                     
                     worksheet = workbook.add_worksheet(c_name)
                     header_format = workbook.add_format({'bold': True, 'bg_color': '#D3D3D3', 'border': 1})
