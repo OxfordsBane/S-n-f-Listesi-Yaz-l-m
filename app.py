@@ -9,8 +9,7 @@ st.set_page_config(page_title="Hazırlık Sınıf Dağıtım", layout="wide")
 
 st.title("🇬🇧 İngilizce Hazırlık Sınıf Atama Sistemi")
 
-# --- SESSION STATE (HAFIZA) AYARLARI ---
-# Sayfa yenilense bile verilerin kaybolmaması için
+# --- SESSION STATE (HAFIZA) ---
 if 'generated_lists' not in st.session_state:
     st.session_state['generated_lists'] = None
 if 'generated_db' not in st.session_state:
@@ -63,7 +62,6 @@ st.divider()
 
 # --- 3. DOSYA YÜKLEME ---
 st.markdown("### 2. Adım: Listenizi Yükleyin")
-# Dosya değiştiğinde hafızayı temizle ki eski butonlar kalmasın
 uploaded_file = st.file_uploader("Excel dosyasını buraya yükleyin", type=['xlsx'], key="file_uploader")
 
 if uploaded_file is not None:
@@ -175,7 +173,6 @@ if uploaded_file is not None:
                     config[level] = level_caps
                 st.markdown("---")
             
-            # Butona basıldığında form submitted olur
             submitted = st.form_submit_button("🚀 Listeleri Oluştur", type="primary")
 
         # --- 5. HESAPLAMA VE HAFIZAYA KAYIT ---
@@ -205,16 +202,24 @@ if uploaded_file is not None:
                             target_class = class_names[current_class_idx]
                             class_buckets[target_class].append(student)
                             
+                            # --- GÜNCELLEME BURADA YAPILDI ---
+                            # target_class 'A1.01' formatında geliyor.
+                            # Biz sadece noktadan sonrasını alıyoruz: '01'
+                            if "." in target_class:
+                                class_only_code = target_class.split(".")[-1]
+                            else:
+                                class_only_code = target_class
+
                             db_records.append({
                                 'OgrNo': student['Öğrenci No'],
                                 'Modul': module_no,
                                 'Seviye': level,
-                                'Sinif': str(target_class),
+                                'Sinif': str(class_only_code), # Sadece 01, 02...
                                 'Yil': academic_year
                             })
                             current_class_idx = (current_class_idx + 1) % len(class_names)
                     
-                    # Excel Yazma
+                    # Excel Yazma (Burada orijinal sınıf adını kullanmaya devam ediyoruz)
                     for c_name in class_names:
                         students_in_class = class_buckets[c_name]
                         df_class = pd.DataFrame(students_in_class)
@@ -243,7 +248,7 @@ if uploaded_file is not None:
                 with pd.ExcelWriter(out_db, engine='xlsxwriter') as writer:
                     df_db.to_excel(writer, index=False, header=False, sheet_name='Database_Import')
                 
-                # --- VERİLERİ SESSION STATE'E KAYDET ---
+                # Kaydet
                 st.session_state['generated_lists'] = out_lists.getvalue()
                 st.session_state['generated_db'] = out_db.getvalue()
                 st.session_state['process_logs'] = current_logs
@@ -253,8 +258,7 @@ if uploaded_file is not None:
             except Exception as e:
                 st.error(f"Beklenmeyen bir hata: {e}")
 
-        # --- 6. SONUÇLARI GÖSTER (BUTONLAR BURADA) ---
-        # Bu kısım if submitted bloğunun DIŞINDA olduğu için sayfa yenilense de çalışır
+        # --- 6. SONUÇLARI GÖSTER ---
         if st.session_state['generated_lists'] is not None:
             st.divider()
             st.subheader("🎉 Sonuçlar")
@@ -272,9 +276,7 @@ if uploaded_file is not None:
             with col2:
                 st.download_button(
                     label="📥 2. Veri Tabanı Listesini İndir",
-                    data=st.session_state['generated_lists'] and st.session_state['generated_db'], 
-                    # Not: and kullanımı short-circuit mantığıyla çalışır, ikisi de varsa 2.yi alır. 
-                    # Ancak None kontrolü yukarıda yapıldı.
+                    data=st.session_state['generated_db'], 
                     file_name='Database_Import_List.xlsx',
                     mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
                 )
