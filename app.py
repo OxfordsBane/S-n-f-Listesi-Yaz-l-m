@@ -38,12 +38,12 @@ def create_template_with_help():
     
     # 1. Sayfa: Veri Şablonu
     example_data = {
-        'Öğrenci No': [23001, 23002, 23003, 23004],
-        'Ad': ['Ahmet', 'Ayşe', 'John', 'Fatma'],
-        'Soyad': ['Yılmaz', 'Demir', 'Doe', 'Kaya'],
-        'Seviyesi': ['A1', 'A1', 'B1', 'A2'],
-        'Uyruk': ['ÖSYM', 'ÖSYM', 'YÖS', 'ÖSYM'],
-        'Modül Durumu': ['A', '', 'B', 'Placement'] 
+        'Öğrenci No': [23001, 23002, 23003, 23004, 23005],
+        'Ad': ['Ahmet', 'Ayşe', 'John', 'Fatma', 'Ali'],
+        'Soyad': ['Yılmaz', 'Demir', 'Doe', 'Kaya', 'Can'],
+        'Seviyesi': ['A1', 'A1', 'B1', 'A2', 'A2'],
+        'Uyruk': ['ÖSYM', 'ÖSYM', 'YÖS', 'ÖSYM', 'ÖSYM'],
+        'Modül Durumu': ['A', 'F', 'B', 'Placement', 'Ghost'] 
     }
     df_ex = pd.DataFrame(example_data)
     df_ex.to_excel(writer, index=False, sheet_name='Veri_Sablonu')
@@ -69,7 +69,7 @@ def create_template_with_help():
         ['Ad / Soyad', 'Öğrencinin kimlik bilgileri.'],
         ['Seviyesi', 'Öğrencinin OKUDUĞU (Eski) seviye. Örn: A1, A2...'],
         ['Uyruk', '"ÖSYM" veya "YÖS" olarak belirtilmelidir.'],
-        ['Modül Durumu', 'Not bilgisi: A, B, C (Geçti), F, Ghost (Kaldı), Placement (Yerleşti). 1. Modülde boş bırakılabilir.']
+        ['Modül Durumu', 'Not bilgisi:\n- A, B, C: Başarılı (Bir üst kura geçer).\n- F: Başarısız (Aynı kurda kalır).\n- Ghost: Devamsız (Aynı kurda kalır).\n- Placement: Yerleşti (Kurda başlar).\n- (Boş): Sadece 1. Modülde kullanılabilir.']
     ]
     
     row = 3
@@ -92,7 +92,7 @@ template_file = create_template_with_help()
 st.download_button(
     label="📥 Excel Şablonunu ve Kılavuzu İndir",
     data=template_file,
-    file_name='Sinif_Atama_Sablonu_v2.xlsx',
+    file_name='Sinif_Atama_Sablonu_v3.xlsx',
     mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 )
 
@@ -173,35 +173,42 @@ if uploaded_file is not None:
         
         st.success(f"✅ Dosya başarıyla işlendi ve kurallara göre dağıtıldı.")
         
-        # --- İSTATİSTİK PANO (YENİ EKLENEN KISIM) ---
+        # --- İSTATİSTİK PANO (GÜNCELLENMİŞ) ---
         st.markdown("#### 📊 Öğrenci İstatistikleri (Atanacak Seviyeye Göre)")
         
         stats_data = []
         total_students_sum = 0
         
         for level in active_levels:
-            # Sadece bu seviyeye atanacak öğrencileri filtrele
             subset = df_active[df_active['Atanacak_Seviye'] == level]
-            
             total = len(subset)
             total_students_sum += total
             
-            # Alt kırılımlar (String karşılaştırma)
-            # Not: Baslangic (Modül 1) de Placement kategorisinde değerlendirilir
+            # 1. Ghost (Devamsız) Sayısı
             ghosts = len(subset[subset['Modül Durumu'].str.upper() == 'GHOST'])
+            
+            # 2. Placement / Yeni (Notu Placement veya Baslangic olanlar)
             placements = len(subset[subset['Modül Durumu'].str.upper().isin(['PLACEMENT', 'BASLANGIC'])])
             
-            # Aktif = Toplam - (Ghost + Placement)
-            active_std = total - (ghosts + placements)
+            # 3. Geçen (Başarılı olup buraya gelenler - A, B, C)
+            passed = len(subset[subset['Modül Durumu'].str.upper().isin(PASS_GRADES)])
             
-            # Uyruk
+            # 4. Kalan (Başarısız olup tekrar edenler - F)
+            failed = len(subset[subset['Modül Durumu'].str.upper() == 'F'])
+            
+            # 5. Aktif (Sadece Geçen ve Kalan toplamı)
+            active_std = passed + failed
+            
+            # Uyruk Dağılımı
             yos = len(subset[subset['Uyruk'].str.upper() == 'YÖS'])
             osym = len(subset[subset['Uyruk'].str.upper() == 'ÖSYM'])
             
             stats_data.append({
                 'Seviye': level,
                 'Toplam': total,
-                'Aktif (Geçen/Kalan)': active_std,
+                'Aktif': active_std,
+                'Geçen': passed,
+                'Kalan': failed,
                 'Placement / Yeni': placements,
                 'Ghost': ghosts,
                 'ÖSYM': osym,
@@ -210,7 +217,7 @@ if uploaded_file is not None:
             
         # Tabloyu Göster
         st.dataframe(pd.DataFrame(stats_data), use_container_width=True)
-        st.caption(f"*Not: 'Aktif' sütunu, Ghost ve Placement (veya yeni kayıt) haricindeki öğrencileri gösterir. Toplam Öğrenci: {total_students_sum}*")
+        st.caption(f"*Not: 'Aktif' sütunu, Geçen (alt kurdan gelen) ve Kalan (tekrar eden) öğrencilerin toplamıdır. Ghost ve Placement hariçtir.*")
         
         st.divider()
 
@@ -290,7 +297,6 @@ if uploaded_file is not None:
                             target_class = class_names[current_class_idx]
                             class_buckets[target_class].append(student)
                             
-                            # DB Format: Sadece sınıf numarası (01)
                             if "." in target_class:
                                 class_only_code = target_class.split(".")[-1]
                             else:
