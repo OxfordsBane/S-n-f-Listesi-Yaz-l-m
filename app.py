@@ -52,12 +52,10 @@ def create_template_with_help():
     workbook = writer.book
     ws_help = workbook.add_worksheet('NASIL_KULLANILIR')
     
-    # Formatlar
     fmt_title = workbook.add_format({'bold': True, 'font_size': 14, 'color': 'blue'})
     fmt_head = workbook.add_format({'bold': True, 'bg_color': '#f0f0f0', 'border': 1})
     fmt_text = workbook.add_format({'text_wrap': True, 'valign': 'top'})
     
-    # Başlık
     ws_help.write('A1', 'SİSTEM KULLANIM KILAVUZU', fmt_title)
     
     headers = ['Sütun Adı', 'Açıklama ve Kurallar']
@@ -170,55 +168,75 @@ if uploaded_file is not None:
         
         # Sıralama
         active_levels = sorted(df_active['Atanacak_Seviye'].unique(), key=lambda x: LEVEL_ORDER.index(x) if x in LEVEL_ORDER else 999)
-        
+        original_levels_sorted = sorted(df['Seviyesi'].unique(), key=lambda x: LEVEL_ORDER.index(x) if x in LEVEL_ORDER else 999)
+
         st.success(f"✅ Dosya başarıyla işlendi ve kurallara göre dağıtıldı.")
         
-        # --- İSTATİSTİK PANO (GÜNCELLENMİŞ) ---
-        st.markdown("#### 📊 Öğrenci İstatistikleri (Atanacak Seviyeye Göre)")
+        # ==========================================
+        # TABLO 1: KAYNAK SEVİYE ANALİZİ (GEÇEN/KALAN)
+        # ==========================================
+        st.markdown("#### 📊 1. Modül Başarı Analizi (Eski Seviyeye Göre)")
+        st.info("Bu tablo, bir önceki modülde **o seviyede okuyan** öğrencilerin ne yaptığını gösterir.")
         
-        stats_data = []
-        total_students_sum = 0
+        stats_source = []
+        for lvl in original_levels_sorted:
+            # O seviyede okumuş olanları al
+            subset = df[df['Seviyesi'] == lvl]
+            total = len(subset)
+            
+            passed = len(subset[subset['Modül Durumu'].str.upper().isin(PASS_GRADES)])
+            failed = len(subset[subset['Modül Durumu'].str.upper() == 'F'])
+            ghosts = len(subset[subset['Modül Durumu'].str.upper() == 'GHOST'])
+            others = total - (passed + failed + ghosts) # Placement vs.
+
+            # Başarı Oranı (Ghost hariç aktif öğrenciler üzerinden hesaplanır genelde)
+            active_for_success = passed + failed
+            success_rate = f"%{int((passed / active_for_success) * 100)}" if active_for_success > 0 else "-"
+
+            stats_source.append({
+                'Seviye (Eski)': lvl,
+                'Toplam Okuyan': total,
+                '✅ Geçen': passed,
+                '❌ Kalan (F)': failed,
+                '👻 Ghost': ghosts,
+                'Diğer': others,
+                'Başarı Oranı': success_rate
+            })
+        st.dataframe(pd.DataFrame(stats_source), use_container_width=True)
+
+
+        # ==========================================
+        # TABLO 2: HEDEF SEVİYE ANALİZİ (SINIF PLANLAMA)
+        # ==========================================
+        st.markdown("#### 🏫 2. Yeni Dönem Sınıf Planlama (Atanacak Seviyeye Göre)")
+        st.info("Bu tablo, kurallar uygulandıktan sonra **yeni sınıflara** kaç öğrenci yerleşeceğini gösterir.")
         
+        stats_target = []
         for level in active_levels:
             subset = df_active[df_active['Atanacak_Seviye'] == level]
             total = len(subset)
-            total_students_sum += total
             
-            # 1. Ghost (Devamsız) Sayısı
-            ghosts = len(subset[subset['Modül Durumu'].str.upper() == 'GHOST'])
+            # Kaynaklarına göre dağılım
+            # 1. Buraya Alttan Geçip Gelenler
+            prev_level_idx = LEVEL_ORDER.index(level) - 1 if level in LEVEL_ORDER and LEVEL_ORDER.index(level) > 0 else -1
+            prev_level_name = LEVEL_ORDER[prev_level_idx] if prev_level_idx >= 0 else "Yok"
             
-            # 2. Placement / Yeni (Notu Placement veya Baslangic olanlar)
-            placements = len(subset[subset['Modül Durumu'].str.upper().isin(['PLACEMENT', 'BASLANGIC'])])
+            coming_from_below = len(subset[subset['Seviyesi'] == prev_level_name])
+            staying_same = len(subset[subset['Seviyesi'] == level])
             
-            # 3. Geçen (Başarılı olup buraya gelenler - A, B, C)
-            passed = len(subset[subset['Modül Durumu'].str.upper().isin(PASS_GRADES)])
-            
-            # 4. Kalan (Başarısız olup tekrar edenler - F)
-            failed = len(subset[subset['Modül Durumu'].str.upper() == 'F'])
-            
-            # 5. Aktif (Sadece Geçen ve Kalan toplamı)
-            active_std = passed + failed
-            
-            # Uyruk Dağılımı
             yos = len(subset[subset['Uyruk'].str.upper() == 'YÖS'])
             osym = len(subset[subset['Uyruk'].str.upper() == 'ÖSYM'])
             
-            stats_data.append({
-                'Seviye': level,
-                'Toplam': total,
-                'Aktif': active_std,
-                'Geçen': passed,
-                'Kalan': failed,
-                'Placement / Yeni': placements,
-                'Ghost': ghosts,
+            stats_target.append({
+                'Seviye (Yeni)': level,
+                'Toplam Mevcut': total,
+                'Alttan Geçip Gelen': coming_from_below,
+                'Kaldığı İçin Tekrar Eden': staying_same,
                 'ÖSYM': osym,
                 'YÖS': yos
             })
             
-        # Tabloyu Göster
-        st.dataframe(pd.DataFrame(stats_data), use_container_width=True)
-        st.caption(f"*Not: 'Aktif' sütunu, Geçen (alt kurdan gelen) ve Kalan (tekrar eden) öğrencilerin toplamıdır. Ghost ve Placement hariçtir.*")
-        
+        st.dataframe(pd.DataFrame(stats_target), use_container_width=True)
         st.divider()
 
         # --- 4. PARAMETRE AYARLARI ---
