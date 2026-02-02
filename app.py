@@ -28,33 +28,71 @@ st.sidebar.info("İkinci Excel çıktısı için bu bilgileri giriniz.")
 academic_year = st.sidebar.text_input("Akademik Yıl", value="2025-2026")
 module_no = st.sidebar.selectbox("Kaçıncı Modül", options=[1, 2, 3, 4, 5], index=0)
 
-# --- 2. ŞABLON İNDİRME ---
-st.markdown("### 1. Adım: Veri Şablonu")
-st.info("Ayarların açılması için önce aşağıdaki şablona uygun listenizi yüklemeniz gerekmektedir.")
+if module_no == 1:
+    st.sidebar.success("✅ 1. Modül seçildi: 'Modül Durumu' boş bırakılan öğrenciler, belirtilen seviyeye doğrudan yerleştirilecek.")
 
-example_data = {
-    'Öğrenci No': [23001, 23002, 23003, 23004, 23005, 23006],
-    'Ad': ['Ahmet', 'Ayşe', 'John', 'Fatma', 'Mehmet', 'Can'],
-    'Soyad': ['Yılmaz', 'Demir', 'Doe', 'Kaya', 'Çelik', 'Su'],
-    'Seviyesi': ['A1', 'A1', 'B1', 'B1', 'A2', 'B2'],
-    'Uyruk': ['ÖSYM', 'ÖSYM', 'YÖS', 'ÖSYM', 'ÖSYM', 'ÖSYM'],
-    'Modül Durumu': ['A', 'F', 'B', 'Ghost', 'Placement', 'B'] 
-}
-df_example = pd.DataFrame(example_data)
-
-def to_excel_template(df):
+# --- 2. ŞABLON OLUŞTURMA FONKSİYONU ---
+def create_template_with_help():
     output = io.BytesIO()
     writer = pd.ExcelWriter(output, engine='xlsxwriter')
-    df.to_excel(writer, index=False, sheet_name='Veri_Sablonu')
+    
+    # 1. Sayfa: Veri Şablonu
+    example_data = {
+        'Öğrenci No': [23001, 23002, 23003, 23004],
+        'Ad': ['Ahmet', 'Ayşe', 'John', 'Fatma'],
+        'Soyad': ['Yılmaz', 'Demir', 'Doe', 'Kaya'],
+        'Seviyesi': ['A1', 'A1', 'B1', 'A2'],
+        'Uyruk': ['ÖSYM', 'ÖSYM', 'YÖS', 'ÖSYM'],
+        'Modül Durumu': ['A', '', 'B', 'Placement'] 
+    }
+    df_ex = pd.DataFrame(example_data)
+    df_ex.to_excel(writer, index=False, sheet_name='Veri_Sablonu')
+    
+    # 2. Sayfa: NASIL KULLANILIR
+    workbook = writer.book
+    ws_help = workbook.add_worksheet('NASIL_KULLANILIR')
+    
+    # Formatlar
+    fmt_title = workbook.add_format({'bold': True, 'font_size': 14, 'color': 'blue'})
+    fmt_head = workbook.add_format({'bold': True, 'bg_color': '#f0f0f0', 'border': 1})
+    fmt_text = workbook.add_format({'text_wrap': True, 'valign': 'top'})
+    
+    # Başlık
+    ws_help.write('A1', 'SİSTEM KULLANIM KILAVUZU', fmt_title)
+    
+    headers = ['Sütun Adı', 'Açıklama ve Kurallar']
+    ws_help.write('A3', headers[0], fmt_head)
+    ws_help.write('B3', headers[1], fmt_head)
+    
+    instructions = [
+        ['Öğrenci No', 'Öğrencinin okul numarasıdır. Mükerrer olmamalıdır.'],
+        ['Ad / Soyad', 'Öğrencinin kimlik bilgileri.'],
+        ['Seviyesi', 'Öğrencinin OKUDUĞU (Eski) seviye. Örn: A1, A2...'],
+        ['Uyruk', '"ÖSYM" veya "YÖS" olarak belirtilmelidir.'],
+        ['Modül Durumu', 'Not bilgisi: A, B, C (Geçti), F, Ghost (Kaldı), Placement (Yerleşti). 1. Modülde boş bırakılabilir.']
+    ]
+    
+    row = 3
+    for item in instructions:
+        ws_help.write(row, 0, item[0], fmt_text)
+        ws_help.write(row, 1, item[1], fmt_text)
+        row += 1
+        
+    ws_help.set_column(0, 0, 20)
+    ws_help.set_column(1, 1, 60)
     writer.close()
     return output.getvalue()
 
-template_file = to_excel_template(df_example)
+# --- ŞABLON İNDİRME ---
+st.markdown("### 1. Adım: Veri Şablonu")
+st.info("Sütun açıklamaları için Excel'deki 'NASIL_KULLANILIR' sekmesine bakabilirsiniz.")
+
+template_file = create_template_with_help()
 
 st.download_button(
-    label="📥 Boş Excel Şablonunu İndir",
+    label="📥 Excel Şablonunu ve Kılavuzu İndir",
     data=template_file,
-    file_name='Sinif_Atama_Sablonu.xlsx',
+    file_name='Sinif_Atama_Sablonu_v2.xlsx',
     mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 )
 
@@ -70,19 +108,29 @@ if uploaded_file is not None:
         
         # Temizlik
         df.columns = df.columns.str.strip()
-        required_columns = ['Seviyesi', 'Öğrenci No', 'Ad', 'Soyad', 'Uyruk', 'Modül Durumu']
+        required_columns = ['Seviyesi', 'Öğrenci No', 'Ad', 'Soyad', 'Uyruk']
+        if 'Modül Durumu' not in df.columns:
+             st.error("❌ HATA: 'Modül Durumu' sütunu Excel'de bulunamadı.")
+             st.stop()
+             
         missing_columns = [col for col in required_columns if col not in df.columns]
-        
         if missing_columns:
             st.error(f"❌ HATA: Eksik sütunlar: {', '.join(missing_columns)}")
             st.stop()
             
-        # Mükerrer Kayıt Kontrolü
+        # Mükerrer Kontrolü
         duplicates = df[df.duplicated('Öğrenci No', keep=False)]
         if not duplicates.empty:
             st.error("⚠️ DİKKAT: Listede aynı numaraya sahip birden fazla kayıt bulundu!")
             st.dataframe(duplicates.sort_values('Öğrenci No'), use_container_width=True)
             st.warning("Lütfen Excel dosyanızı düzeltip tekrar yükleyin.")
+
+        # Modül 1 Mantığı
+        if module_no == 1:
+            df['Modül Durumu'] = df['Modül Durumu'].fillna('Baslangic')
+            df.loc[df['Modül Durumu'].astype(str).str.strip() == '', 'Modül Durumu'] = 'Baslangic'
+        else:
+            df['Modül Durumu'] = df['Modül Durumu'].fillna('Bilinmiyor')
 
         # Veri İşleme
         df['Seviyesi'] = df['Seviyesi'].astype(str).str.strip()
@@ -119,9 +167,51 @@ if uploaded_file is not None:
 
         df['Atanacak_Seviye'] = target_levels
         df_active = df[df['Atanacak_Seviye'] != "Mezun/Fakülte"].copy()
+        
+        # Sıralama
         active_levels = sorted(df_active['Atanacak_Seviye'].unique(), key=lambda x: LEVEL_ORDER.index(x) if x in LEVEL_ORDER else 999)
         
-        st.success(f"✅ Dosya işlendi. Kurallar uygulandı.")
+        st.success(f"✅ Dosya başarıyla işlendi ve kurallara göre dağıtıldı.")
+        
+        # --- İSTATİSTİK PANO (YENİ EKLENEN KISIM) ---
+        st.markdown("#### 📊 Öğrenci İstatistikleri (Atanacak Seviyeye Göre)")
+        
+        stats_data = []
+        total_students_sum = 0
+        
+        for level in active_levels:
+            # Sadece bu seviyeye atanacak öğrencileri filtrele
+            subset = df_active[df_active['Atanacak_Seviye'] == level]
+            
+            total = len(subset)
+            total_students_sum += total
+            
+            # Alt kırılımlar (String karşılaştırma)
+            # Not: Baslangic (Modül 1) de Placement kategorisinde değerlendirilir
+            ghosts = len(subset[subset['Modül Durumu'].str.upper() == 'GHOST'])
+            placements = len(subset[subset['Modül Durumu'].str.upper().isin(['PLACEMENT', 'BASLANGIC'])])
+            
+            # Aktif = Toplam - (Ghost + Placement)
+            active_std = total - (ghosts + placements)
+            
+            # Uyruk
+            yos = len(subset[subset['Uyruk'].str.upper() == 'YÖS'])
+            osym = len(subset[subset['Uyruk'].str.upper() == 'ÖSYM'])
+            
+            stats_data.append({
+                'Seviye': level,
+                'Toplam': total,
+                'Aktif (Geçen/Kalan)': active_std,
+                'Placement / Yeni': placements,
+                'Ghost': ghosts,
+                'ÖSYM': osym,
+                'YÖS': yos
+            })
+            
+        # Tabloyu Göster
+        st.dataframe(pd.DataFrame(stats_data), use_container_width=True)
+        st.caption(f"*Not: 'Aktif' sütunu, Ghost ve Placement (veya yeni kayıt) haricindeki öğrencileri gösterir. Toplam Öğrenci: {total_students_sum}*")
+        
         st.divider()
 
         # --- 4. PARAMETRE AYARLARI ---
@@ -134,7 +224,7 @@ if uploaded_file is not None:
                 students_in_target = df_active[df_active['Atanacak_Seviye'] == level]
                 count = len(students_in_target)
                 
-                st.markdown(f"**🎚️ {level} Seviyesi** (Toplam Öğrenci: {count})")
+                st.markdown(f"**🎚️ {level} Seviyesi**")
                 
                 c1, c2, c3 = st.columns([1, 1, 3])
                 
@@ -175,14 +265,12 @@ if uploaded_file is not None:
             
             submitted = st.form_submit_button("🚀 Listeleri Oluştur", type="primary")
 
-        # --- 5. HESAPLAMA VE HAFIZAYA KAYIT ---
+        # --- 5. HESAPLAMA ---
         if submitted:
             try:
-                # 1. Çıktı: Sınıf Listeleri
                 out_lists = io.BytesIO()
                 wb_lists = xlsxwriter.Workbook(out_lists, {'in_memory': True})
                 
-                # 2. Çıktı: Veri Tabanı
                 db_records = [] 
                 current_logs = []
                 
@@ -202,9 +290,7 @@ if uploaded_file is not None:
                             target_class = class_names[current_class_idx]
                             class_buckets[target_class].append(student)
                             
-                            # --- GÜNCELLEME BURADA YAPILDI ---
-                            # target_class 'A1.01' formatında geliyor.
-                            # Biz sadece noktadan sonrasını alıyoruz: '01'
+                            # DB Format: Sadece sınıf numarası (01)
                             if "." in target_class:
                                 class_only_code = target_class.split(".")[-1]
                             else:
@@ -214,12 +300,11 @@ if uploaded_file is not None:
                                 'OgrNo': student['Öğrenci No'],
                                 'Modul': module_no,
                                 'Seviye': level,
-                                'Sinif': str(class_only_code), # Sadece 01, 02...
+                                'Sinif': str(class_only_code),
                                 'Yil': academic_year
                             })
                             current_class_idx = (current_class_idx + 1) % len(class_names)
                     
-                    # Excel Yazma (Burada orijinal sınıf adını kullanmaya devam ediyoruz)
                     for c_name in class_names:
                         students_in_class = class_buckets[c_name]
                         df_class = pd.DataFrame(students_in_class)
@@ -241,14 +326,12 @@ if uploaded_file is not None:
 
                 wb_lists.close()
                 
-                # DB Excel
                 df_db = pd.DataFrame(db_records)
                 df_db = df_db[['OgrNo', 'Modul', 'Seviye', 'Sinif', 'Yil']]
                 out_db = io.BytesIO()
                 with pd.ExcelWriter(out_db, engine='xlsxwriter') as writer:
                     df_db.to_excel(writer, index=False, header=False, sheet_name='Database_Import')
                 
-                # Kaydet
                 st.session_state['generated_lists'] = out_lists.getvalue()
                 st.session_state['generated_db'] = out_db.getvalue()
                 st.session_state['process_logs'] = current_logs
@@ -258,7 +341,7 @@ if uploaded_file is not None:
             except Exception as e:
                 st.error(f"Beklenmeyen bir hata: {e}")
 
-        # --- 6. SONUÇLARI GÖSTER ---
+        # --- 6. SONUÇLAR ---
         if st.session_state['generated_lists'] is not None:
             st.divider()
             st.subheader("🎉 Sonuçlar")
